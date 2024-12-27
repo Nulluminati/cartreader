@@ -106,13 +106,20 @@ void gbaMenu() {
 
         case 5:
           // 1M FLASH (divided into two banks)
+          // if (flashid == 0xBFD5) {
+          //   printFlashTypeAndWait(F("SST 39VF010"));
+          //   setROM_GBA();
+          //   readFLASH_GBA(1, 131072, 0);
+          // } else  {
+          //   // divided into two banks
           switchBank_GBA(0x0);
           setROM_GBA();
           readFLASH_GBA(1, 65536, 0);
-          switchBank_GBA(0x1);
-          setROM_GBA();
-          readFLASH_GBA(0, 65536, 65536);
-          break;
+          // switchBank_GBA(0x1);
+          // setROM_GBA();
+          readFLASH_GBA(0, 131072, 65536);
+          // }
+          break;  
 
         case 6:
           // 512K SRAM/FRAM
@@ -182,6 +189,10 @@ void gbaMenu() {
           break;
 
         case 5:
+          // 131072 bytes are divided into two 65536 byte banks
+          byte banks = 2;
+          uint32_t flashSize = 65536;
+
           // 1M FLASH
           idFlash_GBA();
           resetFLASH_GBA();
@@ -190,20 +201,24 @@ void gbaMenu() {
             printFlashTypeAndWait(F("Macronix MX29L010"));
           } else if (flashid == 0x6213) {
             printFlashTypeAndWait(F("SANYO LE26FV10N1TS"));
+          } else if (flashid == 0xBFD5) {
+            printFlashTypeAndWait(F("SST 39VF010"));
+            banks = 1;
+            flashSize = 131072;
           } else {
             printFlashTypeAndWait(F("Unknown"));
             //print_FatalError(FSTRING_EMPTY);
           }
 
           eraseFLASH_GBA();
-          // 131072 bytes are divided into two 65536 byte banks
-          for (byte bank = 0; bank < 2; bank++) {
+
+          for (byte bank = 0; bank < banks; bank++) {
             switchBank_GBA(bank);
             setROM_GBA();
-            if (!blankcheckFLASH_GBA(65536))
+            if (!blankcheckFLASH_GBA(flashSize))
               break;
-            writeFLASH_GBA(!bank, 65536, bank ? 65536 : 0, 0);
-            if (verifyFLASH_GBA(65536, bank ? 65536 : 0))
+            writeFLASH_GBA(!bank, flashSize, bank ? 65536 : 0, 0);
+            if (verifyFLASH_GBA(flashSize, bank ? 65536 : 0))
               break;
           }
           break;
@@ -241,6 +256,19 @@ void GBAReproMenu() {
   setup_GBA_Repro();
 
   flashRepro_GBA(0);
+  println_Msg(FS(FSTRING_EMPTY));
+  // Prints string out of the common strings array either with or without newline
+  print_STR(press_button_STR, 1);
+  display_Update();
+  wait();
+  resetArduino();
+}
+
+// Flash GBA Repro - Ali RTC Cart
+void GBAReproAliRTCMenu() {
+  setup_GBA_Repro();
+
+  flashRepro_GBAAliRTC();
   println_Msg(FS(FSTRING_EMPTY));
   // Prints string out of the common strings array either with or without newline
   print_STR(press_button_STR, 1);
@@ -1349,13 +1377,22 @@ void resetFLASH_GBA() {
   delay(100);
 }
 
-byte readByteFlash_GBA(uint16_t myAddress) {
+byte readByteFlash_GBA(uint32_t myAddress) {
   // Set address
   PORTF = myAddress & 0xFF;
   PORTK = (myAddress >> 8) & 0xFF;
+  PORTL = (myAddress >> 16) & 0xFF;
 
   // Wait until byte is ready to read
   __asm__("nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
           "nop\n\t"
           "nop\n\t"
           "nop\n\t");
@@ -1365,6 +1402,14 @@ byte readByteFlash_GBA(uint16_t myAddress) {
 
   // Arduino running at 16Mhz -> one nop = 62.5ns
   __asm__("nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
+          "nop\n\t"
           "nop\n\t"
           "nop\n\t"
           "nop\n\t");
@@ -1491,9 +1536,11 @@ void readFLASH_GBA(boolean browseFile, uint32_t flashSize, uint32_t pos) {
   // Set address ports to output
   DDRF = 0xFF;
   DDRK = 0xFF;
+  DDRL = 0xFF;
   // Set address to 0
   PORTF = 0x00;
   PORTK = 0x00;
+  PORTL = 0x00;
 
   // Set data pins to input
   DDRC = 0x00;
@@ -1520,7 +1567,7 @@ void readFLASH_GBA(boolean browseFile, uint32_t flashSize, uint32_t pos) {
   // Output a LOW signal on OE_FLASH(PH6)
   PORTH &= ~(1 << 6);
 
-  for (uint32_t currAddress = 0; currAddress < flashSize; currAddress += 512) {
+  for (uint32_t currAddress = pos; currAddress < flashSize; currAddress += 512) {
     for (int c = 0; c < 512; c++) {
       // Read byte
       sdBuffer[c] = readByteFlash_GBA(currAddress + c);
@@ -2023,6 +2070,12 @@ void resetMX29GL128E_GBA() {
   writeWord_GAB(0, 0xF0);
 }
 
+void resetS29GL256S_GBA() {
+  writeWord_GBA(0xAAA, 0xAA);
+  writeWord_GBA(0x555, 0x55);
+  writeWord_GBA(0xAAA, 0xF0);
+}
+
 boolean sectorCheckMX29GL128E_GBA() {
   boolean sectorProtect = 0;
   writeWord_GAB(0xAAA, 0xAA);
@@ -2095,6 +2148,40 @@ void idFlashrom_GBA() {
     }
   }
 }
+
+void idFlashrom_GBAAliRTC() {
+  // Send regular Spansion S29GL256S ID command to flashrom
+  writeWord_GBA(0xAAA, 0xAA);
+  writeWord_GBA(0x555, 0x55);
+  writeWord_GBA(0xAAA, 0x90);
+  __asm__("nop\n\t"
+      "nop\n\t"
+      "nop\n\t"
+      "nop\n\t"
+      "nop\n\t"
+      "nop\n\t"
+      "nop\n\t"
+      "nop\n\t");
+
+  unsigned int manufacturerid = readWord_GBA(0x0);
+  flashid = readWord_GBA(0x2);
+  sprintf(flashid_str, "%04X", flashid);
+
+  if (manufacturerid == 0x01 && flashid == 0x227E) {
+    romType = (readWord_GBA(0x0) & 0xFF);
+    cartSize = 0x2000000;
+    resetS29GL256S_GBA();
+  } else {
+    println_Msg(F("Error 1"));
+    println_Msg(FS(FSTRING_EMPTY));
+    println_Msg(F("Unknown Flash"));
+    print_Msg(F("Flash ID: "));
+    println_Msg(flashid);
+    println_Msg(FS(FSTRING_EMPTY));
+    print_FatalError(F("Check voltage"));
+  }
+}
+
 
 boolean blankcheckFlashrom_GBA() {
   boolean blank = 1;
@@ -2327,6 +2414,29 @@ void sectorEraseMX29GL128E_GBA() {
   }
 }
 
+void sectorEraseS29GL256S_GBA() {
+  unsigned long lastSector = 0x1FFFFFF;
+
+  // Erase 256 sectors with 128kbytes each
+  unsigned long currSector;
+  for (currSector = 0x0; currSector < lastSector; currSector += 0x20000) {
+    writeWord_GBA(0xAAA, 0xAA);
+    writeWord_GBA(0x555, 0x55);
+    writeWord_GBA(0xAAA, 0x80);
+    writeWord_GBA(0xAAA, 0xAA);
+    writeWord_GBA(0x555, 0x55);
+    writeWord_GBA(currSector, 0x30);
+
+    // Read the status register
+    word statusReg = readWord_GBA(currSector);
+    while ((statusReg | 0xFF7F) != 0xFFFF) {
+      statusReg = readWord_GBA(currSector);
+    }
+    // Blink LED
+    blinkLED();
+  }
+}
+
 void writeIntel4000_GBA() {
   for (unsigned long currBlock = 0; currBlock < fileSize; currBlock += 0x20000) {
     // Blink led
@@ -2447,6 +2557,48 @@ void writeMX29GL128E_GBA() {
 
         // Confirm write buffer
         writeWord_GAB(currSector, 0x29);
+
+        // Read the status register
+        word statusReg = readWord_GAB(currSector + currSdBuffer + currWriteBuffer + 62);
+
+        while ((statusReg | 0xFF7F) != (currWord | 0xFF7F)) {
+          statusReg = readWord_GAB(currSector + currSdBuffer + currWriteBuffer + 62);
+        }
+      }
+    }
+  }
+}
+
+void writeS29GL256S_GBA() {
+    for (unsigned long currSector = 0; currSector < fileSize; currSector += 0x20000) {
+    // Blink led
+    blinkLED();
+
+    // Write to flashrom
+    for (unsigned long currSdBuffer = 0; currSdBuffer < 0x20000; currSdBuffer += 512) {
+      // Fill SD buffer
+      myFile.read(sdBuffer, 512);
+
+      // Write 32 words at a time
+      for (int currWriteBuffer = 0; currWriteBuffer < 512; currWriteBuffer += 64) {
+        // Write Buffer command
+        writeWord_GBA(0xAAA, 0xAA);
+        writeWord_GBA(0x555, 0x55);
+        writeWord_GBA(currSector, 0x25);
+
+        // Write word count (minus 1)
+        writeWord_GBA(currSector, 0x1F);
+
+        // Write buffer
+        word currWord;
+        for (byte currByte = 0; currByte < 64; currByte += 2) {
+          // Join two bytes into one word
+          currWord = ((sdBuffer[currWriteBuffer + currByte + 1] & 0xFF) << 8) | (sdBuffer[currWriteBuffer + currByte] & 0xFF);
+          writeWord_GBA(currSector + currSdBuffer + currWriteBuffer + currByte, currWord);
+        }
+
+        // Confirm write buffer
+        writeWord_GBA(currSector, 0x29);
 
         // Read the status register
         word statusReg = readWord_GAB(currSector + currSdBuffer + currWriteBuffer + 62);
@@ -2914,6 +3066,90 @@ void flashRepro_GBA(boolean option) {
       //} else {
       //  print_FatalError(F("failed"));
       //}
+    } else {
+      print_FatalError(open_file_STR);
+    }
+  } else {
+    println_Msg(F("Error"));
+    println_Msg(FS(FSTRING_EMPTY));
+    println_Msg(F("Unknown Flash"));
+    print_Msg(F("Flash ID: "));
+    println_Msg(flashid_str);
+    println_Msg(FS(FSTRING_EMPTY));
+    print_FatalError(F("Check voltage"));
+  }
+}
+
+void flashRepro_GBAAliRTC() {
+  // Check flashrom ID's
+  idFlashrom_GBAAliRTC();
+
+  if (flashid == 0x227E) {
+    byte blockNum = 0;
+    print_Msg(F("ID: "));
+    print_Msg(flashid_str);
+    print_Msg(F(" Size: "));
+    print_Msg(cartSize / 0x100000);
+    println_Msg(F("MB"));
+    print_Msg(F("romType: 0x"));
+    println_Msg(romType, HEX);
+    println_Msg("");
+    println_Msg(F("This will erase your"));
+    println_Msg(F("Repro Cartridge."));
+    println_Msg(FS(FSTRING_EMPTY));
+    println_Msg("");
+    // Prints string out of the common strings array either with or without newline
+    print_STR(press_button_STR, 1);
+    display_Update();
+    wait();
+
+    // Launch file browser
+    filePath[0] = '\0';
+    sd.chdir("/");
+    fileBrowser(F("Select gba file"));
+    display_Clear();
+    display_Update();
+
+    // Create filepath
+    sprintf(filePath, "%s/%s", filePath, fileName);
+
+    // Open file on sd card
+    if (myFile.open(filePath, O_READ)) {
+      // Get rom size from file
+      fileSize = myFile.fileSize();
+      print_Msg(F("File size: "));
+      print_Msg(fileSize / 0x100000);
+      println_Msg(F("MB"));
+      display_Update();
+
+      // Erase needed sectors
+      println_Msg(F("Erasing..."));
+      display_Update();
+
+      
+      sectorEraseS29GL256S_GBA();
+
+      print_Msg(F("Writing "));
+      println_Msg(filePath);
+      display_Update();
+
+      writeS29GL256S_GBA();
+
+      // Close the file:
+      myFile.close();
+
+      // Verify
+      print_STR(verifying_STR, 0);
+      display_Update();
+      resetS29GL256S_GBA();
+      delay(1000);
+      if (verifyFlashrom_GBA() == 1) {
+        println_Msg(FS(FSTRING_OK));
+        display_Update();
+      } else {
+        print_FatalError(F("ERROR VERIFYING"));
+      }
+
     } else {
       print_FatalError(open_file_STR);
     }
